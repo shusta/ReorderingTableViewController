@@ -430,6 +430,13 @@ typedef enum {
 		indexPathOfRow = selectedPath;
 	
 	/*
+	 *	For some other reason the cell isn't highlighed
+	 */
+	UITableViewCell *highlighedCell = [self.tableView cellForRowAtIndexPath:indexPathOfRow];
+	if ( ![highlighedCell isHighlighted] )
+		return;
+
+	/*
 	 *	Check to see if the tableView's data source will let us move this cell.
 	 *	Return if the data source says NO.
 	 *
@@ -472,6 +479,7 @@ typedef enum {
 	 *
 	 *	Why not just [self.draggedCell setSeparatorStyle:self.tableView.separatorStyle] ourselves? That's a private method.
 	 */
+	
 	
 	NSIndexPath *indexPathOfSomeOtherRow = [self indexPathOfSomeRowThatIsNotIndexPath:indexPathOfRow];
 	
