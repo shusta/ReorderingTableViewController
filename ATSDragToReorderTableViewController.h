@@ -1,4 +1,4 @@
-//
+
 //  ATSDragToReorderTableViewController.h
 //  Reordering
 //
@@ -35,6 +35,11 @@
 		ATSDragToReorderTableViewControllerDelegate notifies upon change in 
 		dragging state. This could be useful if the destination or source of the
 		reorder	could change the content of the cell.
+
+		ATSDragToReorderTableViewControllerDraggableIndicators defines how to 
+		customize the dragged cell to make it appear more "draggable". By
+		default this indicatorDelegate is self and the default implementation
+		adds shadows above and below the cell.
  
 		Requires iOS 4.0 or greater.
  
@@ -78,6 +83,9 @@
 		-tableView:targetIndexPathForMoveFromRowAtIndexPath:toProposedIndexPath:
 		I have no idea what I would do with that.
  
+		The tableview's contents won't change while dragging. I'm pretty sure if
+		you do this, it will crash.
+ 
  */
 
 
@@ -85,12 +93,45 @@
 #import <QuartzCore/CADisplayLink.h>
 #import <QuartzCore/CALayer.h>
 
+@class ATSDragToReorderTableViewController;
 
-@protocol ATSDragToReorderTableViewControllerDelegate;
+@protocol ATSDragToReorderTableViewControllerDelegate
+@optional
 
-@interface ATSDragToReorderTableViewController : UITableViewController <UIGestureRecognizerDelegate>  {
+- (void)dragTableViewController:(ATSDragToReorderTableViewController *)dragTableViewController didBeginDraggingAtRow:(NSIndexPath *)dragRow;
+- (void)dragTableViewController:(ATSDragToReorderTableViewController *)dragTableViewController willEndDraggingToRow:(NSIndexPath *)destinationRow;
+
+@end
+
+
+@protocol ATSDragToReorderTableViewControllerDraggableIndicators
+@required
+/*******
+ *
+ *	-addDraggableIndicatorsToCell:forIndexPath and -removeDraggableIndicatorsFromCell: are guaranteed to be called.
+ *	-hideDraggableIndicatorsOfCell: is usually called, but might not be.
+ *
+ *	These work in tandem, so if your subclass overrides any of them it should override the others as well.
+ *
+ *******/
+
+//	Customize cell to appear draggable. Will be called inside an animation block.
+//	Cell will have highlighted set to YES, animated NO. (changes are to the selectedBackgroundView if it exists)
+- (void)dragTableViewController:(ATSDragToReorderTableViewController *)dragTableViewController addDraggableIndicatorsToCell:(UITableViewCell *)cell forIndexPath:(NSIndexPath *)indexPath;
+//	You should set alpha of adjustments to 0 and similar. Will be called inside an animation block.
+//	This should make the cell look like a normal cell, but is not expected to actually be one. 
+- (void)dragTableViewController:(ATSDragToReorderTableViewController *)dragTableViewController hideDraggableIndicatorsOfCell:(UITableViewCell *)cell;
+//	Removes all adjustments to prepare cell for reuse. Will not be animated.
+//	-hideDraggableIndicatorsOfCell: will probably be called before this, but not necessarily.
+- (void)dragTableViewController:(ATSDragToReorderTableViewController *)dragTableViewController removeDraggableIndicatorsFromCell:(UITableViewCell *)cell; 
+
+@end
+
+
+@interface ATSDragToReorderTableViewController : UITableViewController <UIGestureRecognizerDelegate, ATSDragToReorderTableViewControllerDraggableIndicators>  {
 	NSObject <ATSDragToReorderTableViewControllerDelegate> *dragDelegate;	
-
+	NSObject <ATSDragToReorderTableViewControllerDraggableIndicators> *indicatorDelegate;
+	
 @private
 	// Use setter/getter, not even subclasses should adjust this directly.
 	BOOL reorderingEnabled;
@@ -102,42 +143,21 @@
 	CGFloat distanceThresholdToAutoscroll;
 	
 	CGFloat initialYOffsetOfDraggedCellCenter;
+	CGPoint veryInitialTouchPoint;
 	
 	UITableViewCell *draggedCell;
 	NSIndexPath *indexPathBelowDraggedCell;
-	
-	/*
-	 *	For restoring the cell to its former color, only used in add/remove draggability code.
-	 */	
-	CGFloat formerSelectedBackgroundViewColorAlpha;
-	
+		
 	id resignActiveObserver;
 }
-
 
 // default is YES. Removes or adds gesture recognizers to self.tableView.
 @property (assign, getter=isReorderingEnabled) BOOL reorderingEnabled;
 
 - (BOOL)isDraggingCell;
 
-/*
- *	Optional delegate
- */
-@property (assign) NSObject <ATSDragToReorderTableViewControllerDelegate> *dragDelegate;
+@property (assign) NSObject <ATSDragToReorderTableViewControllerDelegate> *dragDelegate; // nil by default
+@property (assign) NSObject <ATSDragToReorderTableViewControllerDraggableIndicators> *indicatorDelegate; // self by default
 
 @end
-
-
-/*
- *	Delegate can observe beginning and ending of dragging. 
- */
-@protocol ATSDragToReorderTableViewControllerDelegate
-
-@optional
-
-- (void)dragTableViewController:(ATSDragToReorderTableViewController *)dragTableViewController didBeginDraggingAtRow:(NSIndexPath *)dragRow;
-- (void)dragTableViewController:(ATSDragToReorderTableViewController *)dragTableViewController willEndDraggingToRow:(NSIndexPath *)destinationRow;
-
-@end
-
 

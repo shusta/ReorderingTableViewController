@@ -44,16 +44,7 @@
 		of a second. The method it calls will adjust the contentOffset of
 		the tableView and the cell accordingly to move the tableview without
 		moving the visible position of the cell.
- 
-		If you're looking to make changes to the appearance of the cell being 
-		dragged, change the draggability indicator methods -- 
-		-addDraggableIndicationsToCell:animated:
-		-hideDraggableIndicatorsOfCell:
-		-removeDraggableIndicatorsFromCell: 
- 
-		Or just have your subclass override them. Take note of the difference
-		between hide and remove methods if you do so.
- 
+  
  
 	A little bit more detail:
  
@@ -143,9 +134,6 @@ typedef enum {
 - (NSIndexPath *)indexPathOfSomeRowThatIsNotIndexPath:(NSIndexPath *)selectedIndexPath;
 - (void)disableInterferingAspectsOfTableViewAndNavBar;
 - (UITableViewCell *)cellPreparedToAnimateAroundAtIndexPath:(NSIndexPath *)indexPath;
-- (void)addDraggableIndicationsToCell:(UITableViewCell *)cell animated:(BOOL)animated;
-- (void)hideDraggableIndicatorsOfCell:(UITableViewCell *)cell;
-- (void)removeDraggableIndicatorsFromCell:(UITableViewCell *)cell;
 - (void)updateDraggedCellWithTranslationPoint:(CGPoint)translation;
 - (CGFloat)distanceOfCellCenterFromEdge;
 - (CGFloat)autoscrollDistanceForProximityToEdge:(CGFloat)proximity;
@@ -164,7 +152,7 @@ typedef enum {
 
 
 @implementation ATSDragToReorderTableViewController
-@synthesize dragDelegate;
+@synthesize dragDelegate, indicatorDelegate;
 @synthesize draggedCell, indexPathBelowDraggedCell, timerToAutoscroll;
 
 
@@ -187,8 +175,9 @@ typedef enum {
 
 - (void)commonInit {
 	reorderingEnabled = YES;
-	formerSelectedBackgroundViewColorAlpha = -1.0;
 	distanceThresholdToAutoscroll = -1.0;
+	
+	self.indicatorDelegate = self;
 	
 	// tableView's dataSource _must_ implement moving rows
 	NSAssert(self.tableView.dataSource && [self.tableView.dataSource respondsToSelector:@selector(tableView:moveRowAtIndexPath:toIndexPath:)], @"tableview's dataSource must implement moving rows");
@@ -366,8 +355,10 @@ typedef enum {
 	
 	static UITouch *longPressTouch = nil;
 	
-	if ( gestureRecognizer == longPressGesture && longPressGesture.state == UIGestureRecognizerStatePossible )
+	if ( gestureRecognizer == longPressGesture && longPressGesture.state == UIGestureRecognizerStatePossible ) {
 		longPressTouch = touch; // never retain a UITouch
+		veryInitialTouchPoint = [touch locationInView:self.tableView];
+	}
 	
 	/*
 	 *	Only allow either gesture to receive that longPressTouch
@@ -394,6 +385,7 @@ typedef enum {
 	 *	****************************
 	 */
 	
+	
 	/*
 	 *	One potential reason: this was called because dragGesture never activated despite being allowed by former longPressGesture.
 	 *	If this is true, undo state and data established by said former longPressGesture.
@@ -409,8 +401,9 @@ typedef enum {
 	 *	
 	 *	Has to occur after state == UIGestureRecognizerStateBegan else the touched cell will be "stuck" highlighted
 	 */
-	if (self.draggedCell != nil && longPressGesture.state == UIGestureRecognizerStateChanged && self.tableView.allowsSelection == YES)
+	if ( self.draggedCell && longPressGesture.state == UIGestureRecognizerStateChanged && self.tableView.allowsSelection )
 		self.tableView.allowsSelection = NO;
+	
 	
 	/*
 	 *	Another potential reason to return early is because the state isn't appropriate.
@@ -422,11 +415,19 @@ typedef enum {
 	
 	/*
 	 *	Get a valid indexPath to work with from the longPressGesture
-	 *	Third potential reason to end -- longPressGesture isn't actually touching a tableView row.
+	 *	Reason to end -- longPressGesture isn't actually touching a tableView row.
 	 */
 	NSIndexPath *indexPathOfRow = [self anyIndexPathFromLongPressGesture];
-	if (indexPathOfRow == nil)
+	if ( !indexPathOfRow )
 		return;
+	
+	
+	/*
+	 *	If touch has moved across the boundaries to act on a different cell than the one selected, use the original selection.
+	 */
+	NSIndexPath *selectedPath = [self.tableView indexPathForRowAtPoint:veryInitialTouchPoint];
+	if ( !(indexPathOfRow.section == selectedPath.section && indexPathOfRow.row == selectedPath.row) )
+		indexPathOfRow = selectedPath;
 	
 	/*
 	 *	Check to see if the tableView's data source will let us move this cell.
@@ -479,7 +480,22 @@ typedef enum {
 	
 	self.draggedCell = [self cellPreparedToAnimateAroundAtIndexPath:indexPathOfRow];
 	
-	[self addDraggableIndicationsToCell:self.draggedCell animated:YES];
+	[self.draggedCell setHighlighted:YES animated:NO];
+	[UIView animateWithDuration:0.23 delay:0 options:(UIViewAnimationOptionAllowUserInteraction|UIViewAnimationOptionCurveEaseOut) animations:^{
+		[self.indicatorDelegate dragTableViewController:self addDraggableIndicatorsToCell:self.draggedCell forIndexPath:indexPathOfRow];
+	} completion:^(BOOL finished) {
+		/*
+		 *	 We're not changing the cell after this so go ahead and rasterize.
+		 *	Rasterization scale seems to default to 1 if layer is rasterized offscreen or something.
+		 *
+		 *	If it didn't complete, it was likely interrupted by another animation. Don't rasterize the cell on it.
+		 */	
+		
+		if (finished) {
+			self.draggedCell.layer.rasterizationScale = [[UIScreen mainScreen] scale];
+			self.draggedCell.layer.shouldRasterize = YES;
+		}
+	}];
 	
 	/*
 	 *	Save initial y offset so that we can move it with the dragGesture.
@@ -559,14 +575,17 @@ typedef enum {
 	// Signed distance has negative values if near the top.
 	CGFloat signedDistance = [self distanceOfCellCenterFromEdge];
 	
-	CGFloat absoluteDistance = signedDistance;
-	if ( absoluteDistance < 0 )
-		absoluteDistance *= -1;
+#ifdef CGFLOAT_IS_DOUBLE
+	CGFloat absoluteDistance = fabs(signedDistance);
+#else
+	CGFloat absoluteDistance = fabsf(signedDistance);
+#endif
 	
 	CGFloat autoscrollDistance = [self autoscrollDistanceForProximityToEdge:absoluteDistance];
 	// negative values means going up
 	if (signedDistance < 0) 
 		autoscrollDistance *= -1;
+
 
 	
 	/*****
@@ -907,7 +926,7 @@ typedef enum {
 		/*
 			Hides the draggable appearance. 
 		 */
-		[self hideDraggableIndicatorsOfCell:oldDraggedCell];
+		[self.indicatorDelegate dragTableViewController:self hideDraggableIndicatorsOfCell:oldDraggedCell];
 	} completion:^(BOOL finished) {
 		/*
 			Update tableView to show the real cell. Reload to reflect any changes caused by dragDelegate.
@@ -918,7 +937,7 @@ typedef enum {
 		/*
 			Removes the draggable appearance so cell can be reused.
 		 */
-		[self removeDraggableIndicatorsFromCell:oldDraggedCell];
+		[self.indicatorDelegate dragTableViewController:self removeDraggableIndicatorsFromCell:oldDraggedCell];
 		
 		[oldDraggedCell removeFromSuperview];
 		[oldDraggedCell release];
@@ -957,7 +976,7 @@ typedef enum {
 	 */
 	self.draggedCell.layer.shouldRasterize = NO;
 	
-	[self removeDraggableIndicatorsFromCell:self.draggedCell];
+	[self.indicatorDelegate dragTableViewController:self removeDraggableIndicatorsFromCell:self.draggedCell];
 
 	[self.draggedCell removeFromSuperview];
 	
@@ -1425,9 +1444,11 @@ typedef enum {
 	 */
 	UIView *aboveShadowView = [self shadowViewWithFrame:aboveShadowViewFrame andShadowPath:aboveShadowPath.CGPath];
 	aboveShadowView.tag = TAG_FOR_ABOVE_SHADOW_VIEW_WHEN_DRAGGING;
+	aboveShadowView.alpha = 0; // set to 0 before adding as subview
 	
 	UIView *belowShadowView = [self shadowViewWithFrame:belowShadowViewFrame andShadowPath:belowShadowPath.CGPath];
 	belowShadowView.tag = TAG_FOR_BELOW_SHADOW_VIEW_WHEN_DRAGGING;
+	belowShadowView.alpha = 0;
 	
 	/*
 		Add them to the cell itself.
@@ -1444,80 +1465,18 @@ typedef enum {
 /*
 	Description:
 		Makes a cell appear draggable.
-		Does the following:
-			setHighlighted:YES
 			Adds shadows,
 			Bumps up the alpha of the selectedBackgroundView
-			Rasterizes the cell
 	Parameters:
 		cell -- Almost certainly will be self.draggedCell
-		animated -- NO to not animate
+		indexPath -- path of cell, provided for subclasses
  */
-- (void)addDraggableIndicationsToCell:(UITableViewCell *)cell animated:(BOOL)animated {
-	/*
-		Further illusion that draggedCell is original cell by highlighting it.
-		Highlight should not animate. We're trying to pretend that this is really the cell that was originally higlighted.
-	 
-		Add shadows to the cell
-	 */
-	[cell setHighlighted:YES animated:NO];
-	NSArray *arrayOfShadowViews = [self addShadowViewsToCell:cell];
-	
-	/*
-		Default is -1, defined in -commonInit
-	 */
-	if (formerSelectedBackgroundViewColorAlpha < 0) {
-		/*
-			Get the alpha of selectedBackgroundView's color
-			Restore when done with the cell.
-		 */
-		CGColorRef selectedBackgroundColor = cell.selectedBackgroundView.backgroundColor.CGColor;
-		formerSelectedBackgroundViewColorAlpha = CGColorGetAlpha(selectedBackgroundColor);
-	}
-	
-	
-	if (animated) {
-		/*
-			Set alpha to zero so we can fade it in.
-		 */
-		for (UIView *shadowView in arrayOfShadowViews)
-			shadowView.alpha = 0;
+- (void)dragTableViewController:(ATSDragToReorderTableViewController *)dragTableViewController addDraggableIndicatorsToCell:(UITableViewCell *)cell forIndexPath:(NSIndexPath *)indexPath {
+
+	 NSArray *arrayOfShadowViews = [self addShadowViewsToCell:cell];
 		
-		/*
-			Fade cell in a bit give indication that this cell is selected for moving.
-			Fade shadowViews in as well to "pop" the cell off of the tableview.
-		 */
-		[UIView animateWithDuration:0.23 delay:0 options:(UIViewAnimationOptionAllowUserInteraction|UIViewAnimationOptionCurveEaseOut) animations:^{
-			cell.selectedBackgroundView.backgroundColor = [cell.selectedBackgroundView.backgroundColor colorWithAlphaComponent:formerSelectedBackgroundViewColorAlpha + 0.2];
-			
-			for (UIView *shadowView in arrayOfShadowViews)
-				shadowView.alpha = 1;
-		} completion:^(BOOL completed){
-			/*
-				We're not changing the cell after this so go ahead and rasterize.
-				Rasterization scale seems to default to 1 if layer is rasterized offscreen or something.
-			 
-				If it didn't complete, it was likely interrupted by another animation. Don't rasterize the cell on it.
-			 */	
-			
-			if (completed) {
-				cell.layer.rasterizationScale = [[UIScreen mainScreen] scale];
-				cell.layer.shouldRasterize = YES;
-			}
-		}];
-	} else {
-		/*
-			Everything in animate, but condensed.
-			ShadowViews start out fully visible anyway.
-			Bump up alpha of color.
-			rasterize.
-		 */
-		cell.selectedBackgroundView.backgroundColor = [cell.selectedBackgroundView.backgroundColor colorWithAlphaComponent:formerSelectedBackgroundViewColorAlpha + 0.2];
-
-		cell.layer.rasterizationScale = [[UIScreen mainScreen] scale];
-		cell.layer.shouldRasterize = YES;
-
-	}
+	for (UIView *shadowView in arrayOfShadowViews)
+		shadowView.alpha = 1;
 }
 
 
@@ -1531,12 +1490,12 @@ typedef enum {
 		 
 		 If you don't want to animate, just use -removeDraggableIndicatorsFromCell: directly.
  */
-- (void)hideDraggableIndicatorsOfCell:(UITableViewCell *)cell {
+- (void)dragTableViewController:(ATSDragToReorderTableViewController *)dragTableViewController hideDraggableIndicatorsOfCell:(UITableViewCell *)cell {
 	UIView *aboveShadowView = [cell viewWithTag:TAG_FOR_ABOVE_SHADOW_VIEW_WHEN_DRAGGING];
-	UIView *belowShadowView = [cell viewWithTag:TAG_FOR_BELOW_SHADOW_VIEW_WHEN_DRAGGING];
+	aboveShadowView.alpha = 0;
 	
-	aboveShadowView.alpha = belowShadowView.alpha = 0;
-	cell.selectedBackgroundView.backgroundColor = [cell.selectedBackgroundView.backgroundColor colorWithAlphaComponent:formerSelectedBackgroundViewColorAlpha];	
+	UIView *belowShadowView = [cell viewWithTag:TAG_FOR_BELOW_SHADOW_VIEW_WHEN_DRAGGING];
+	belowShadowView.alpha = 0;
 }
 
 
@@ -1547,21 +1506,12 @@ typedef enum {
  
 		not meant to be animated. Use -hideDraggableIndicatorsOfCell: for that and call this in the animation's completion block.
  */
-- (void)removeDraggableIndicatorsFromCell:(UITableViewCell *)cell {
-	/*
-		Remove shadow so that normal cells don't accidentally have them.
-	 */
+- (void)dragTableViewController:(ATSDragToReorderTableViewController *)dragTableViewController removeDraggableIndicatorsFromCell:(UITableViewCell *)cell {
 	UIView *aboveShadowView = [cell viewWithTag:TAG_FOR_ABOVE_SHADOW_VIEW_WHEN_DRAGGING];
 	[aboveShadowView removeFromSuperview];
 	
 	UIView *belowShadowView = [cell viewWithTag:TAG_FOR_BELOW_SHADOW_VIEW_WHEN_DRAGGING];
 	[belowShadowView removeFromSuperview];
-	
-	/*
-		Just in case -hideDraggableIndicatorsOfCell: wasn't called first.
-	 */
-	cell.selectedBackgroundView.backgroundColor = [cell.selectedBackgroundView.backgroundColor colorWithAlphaComponent:formerSelectedBackgroundViewColorAlpha];
-	
 }
 
 
