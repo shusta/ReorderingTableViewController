@@ -10,8 +10,8 @@
 	This is standard UITableViewController stuff. I wrote this first as a UITableViewController and then changed the superclass to ATSDragToReorderTableViewController.
  
 	Then made three differences:
-		Called [super viewDidUnload] in -viewDidUnload
 		Implemented -tableView:moveRowAtIndexPath:toIndexPath:
+		Implemented -cellIdenticalToCellAtIndexPath:forDragTableViewController:
 		Disabled reordering if there's only one item in -tableView:numberOfRowsInSection: (more complicated tableViewControllers might need to check for this condition in other places too)
  */
 
@@ -79,7 +79,7 @@
     
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:CellIdentifier];
     if (cell == nil) {
-        cell = [[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:CellIdentifier] autorelease];
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:CellIdentifier];
     }
     
 	cell.textLabel.text = [arrayOfItems objectAtIndex:indexPath.row];
@@ -87,15 +87,22 @@
     return cell;
 }
 
+// should be identical to cell returned in -tableView:cellForRowAtIndexPath:
+- (UITableViewCell *)cellIdenticalToCellAtIndexPath:(NSIndexPath *)indexPath forDragTableViewController:(ATSDragToReorderTableViewController *)dragTableViewController {
+	UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+	cell.textLabel.text = [arrayOfItems objectAtIndex:indexPath.row];
+	
+	return cell;
+}
+
 /*
 	Required for drag tableview controller
  */
 - (void)tableView:(UITableView *)tableView moveRowAtIndexPath:(NSIndexPath *)fromIndexPath toIndexPath:(NSIndexPath *)toIndexPath {
 	
-	NSString *itemToMove = [[arrayOfItems objectAtIndex:fromIndexPath.row] retain];
+	NSString *itemToMove = [arrayOfItems objectAtIndex:fromIndexPath.row];
 	[arrayOfItems removeObjectAtIndex:fromIndexPath.row];
 	[arrayOfItems insertObject:itemToMove atIndex:toIndexPath.row];
-	[itemToMove release];
 
 }
 
@@ -119,21 +126,6 @@
     // Relinquish ownership any cached data, images, etc that aren't in use.
 }
 
-- (void)viewDidUnload {
-    // Relinquish ownership of anything that can be recreated in viewDidLoad or on demand.
-    // For example: self.myOutlet = nil;
-	
-	/*
-		Must call super for ATSDragToReorderTableViewController. Doesn't matter when.
-	 */
-	[super viewDidUnload];
-}
-
-
-- (void)dealloc {
-	[arrayOfItems release];
-    [super dealloc];
-}
 
 
 @end

@@ -6,7 +6,7 @@ Acacia Tree Software
 
 ATSDragToReorderTableViewController is a UITableViewController subclass that adds drag and drop reordering to a UITableView. 
 
-I developed it as part of Acacia Tree Software’s SousChef for iPhone so rest assured I am eating my own dogfood with this.
+I developed it as part of Acacia Tree Software’s SousChef for iPhone and it has since become an integral part of Ita for sister company Nice Mohawk. This is definitely a eating-our-own-dogfood piece of code.
 
 A UITableView with this functionality can be reordered without switching into edit mode. It’s simply a press and hold to start, then drag the cell to reorder. The UITableView automatically scrolls when approaching the top or bottom of the UITableView.
 
@@ -18,7 +18,7 @@ It is straightforward to incorporate into your app.
 
 	2.  Then implement the UITableViewDataSource method -tableView:moveRowAtIndexPath:toIndexPath: . You might have already done this.
 
-	3.  And make sure the subclass calls [super viewDidUnload] from -viewDidUnload (I think Xcode’s UITableViewController template used to not do this.)
+	3.	If you want to better support iOS <redacted>, you'll want to check out -cellIdenticalToCellAtIndexPath:forDragTableViewController: I am very annoyed about this.
 
 The included sample app includes these changes as a demonstration. Further details are described at the top of the ATSDragToReorderTableViewController.h .
 
@@ -26,11 +26,9 @@ For those curious, ATSDragToReorderTableViewController.m includes a fairly compr
 
 =====
 
-ATSDragToReorderTableViewController relies on UIGestureRecognizer and uses block-based animations throughout, so it requires iOS 4.0 SDK as minimum. 
+ATSDragToReorderTableViewController relies on UIGestureRecognizer and uses block-based animations throughout. It now has full support for ARC and I'm too lazy to continue to support non-ARC projects so this will be iOS 5+ only from now on.
 
-It was made for and tested on iPhone. I haven’t a clue about iPad but I expect it will probably work.
-
-Licensing info is at the very top of the files. It is pretty easy-going, I think. 
+Licensing info is at the very top of the files as well as in a file called LICENSE.
 
 =====
 
