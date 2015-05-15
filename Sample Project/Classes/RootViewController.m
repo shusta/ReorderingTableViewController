@@ -40,7 +40,7 @@
 		arrayOfItems = [[NSMutableArray alloc] initWithCapacity:numberOfItems];
 		
 		for (NSUInteger i = 0; i < numberOfItems; ++i)
-			[arrayOfItems addObject:[NSString stringWithFormat:@"Item #%i", i + 1]];
+			[arrayOfItems addObject:[NSString stringWithFormat:@"Item #%@", @(i + 1)]];
 	}
 }
 
